@@ -1,7 +1,7 @@
 import streamlit as st
 import pydeck as pdk
 import time
-from pycaret.classification import *
+from toppicker import *
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
@@ -62,64 +62,40 @@ def create_plot(wellname, dataframe, curves_to_plot, depth_curve, top_curves=[])
 
 if __name__ == "__main__":
     st.header('Inference')
-    uploaded_file = st.file_uploader("Choose a file")
-    if uploaded_file is not None:
-        with st.spinner('Running prediction...'):
-            time.sleep(5)
-            df = pd.read_csv(uploaded_file.name)
-            del df['Unnamed: 0']
-            data = df[df['well_name'] == '30/6-5']
+    path_to_las_files = st.text_input('Path to LAS files')
+    if len(path_to_las_files) > 0:
+        columns = st.text_input('Please specify input variables')
+        if len(columns) > 0:
+            with st.spinner('Running prediction...'):
+                features = columns.split(sep=',', maxsplit=-1)
+                data = WellData(path_to_las_files,features)
+                test_df = data.process_data()
+                trainer = Trainer()
+                trainer.load('model/top_picker_model')
+                x = test_df[features]
+                msg, yhat = trainer.predict(x)
+                test_df['Predicted'] = yhat
+                st.write('features:', features)
+                features.append('Predicted')
+                curves_to_plot = features
+                top_curve=['Predicted']
+                if 'FORMATION' in test_df.columns:
+                    gp_tops = test_df['FORMATION'].unique()
+                    gp_tops_map = {gp_tops[i]: i for i in range(0, len(gp_tops))}
+                    test_df['Actual'] = test_df['FORMATION'].map(gp_tops_map)
+                    test_df['Predicted'] = test_df['Predicted'].map(gp_tops_map)
+                    curves_to_plot.append('Actual')
+                    top_curve.append('Actual')
 
-            X = data[['GR','DT','RES']]
-            model = load_model('final_model_lightgbm_271122_8am')
-            yhat = predict_model(model, data = X)
-            data['prediction'] = predict_model(model, data = X)['Label']
-            gp_tops = df['FORMATION'].unique()
-            gp_tops_map = {gp_tops[i]: i for i in range(0, len(gp_tops))}
-            data['Actual'] = data['FORMATION'].map(gp_tops_map)
-            data['Predicted'] = data['prediction'].map(gp_tops_map)
-
-            dfs_wells, wellnames = well_splitter(data, 'well_name')
-            curves_to_plot = ["DT", "RES", "GR",  'Actual', 'Predicted']
-            top_curve=['Actual', 'Predicted']
-        st.success('Done prediction')
-        st.header('Plot')
-        well = 0
-        create_plot(wellnames[well], 
-                    dfs_wells[well], 
+                dfs_wells, wellnames = well_splitter(test_df, 'well_name')
+                well = 0
+            st.success('Done prediction')
+            st.header('Plot')
+            option = st.selectbox(
+                'Select which well to visualize',
+                wellnames)
+            create_plot(option, 
+                    dfs_wells[wellnames.index(option)], 
                     curves_to_plot, 
-                    dfs_wells[well]['DEPTH'], 
-                    top_curve)
-
-        st.header('Map')
-        map_data = {
-            'name': wellnames[well],
-            'lon': [2.953],
-            'lat': [60.69],
-        }
-        well_top = pd.DataFrame(map_data)
-        ALL_LAYERS = {
-            "well name": pdk.Layer(
-                "TextLayer",
-                data=well_top,
-                get_position=["lon", "lat"],
-                get_text="name",
-                get_color=[255, 0, 0, 200],
-                get_size=30,
-                get_alignment_baseline="'bottom'",
-            ),
-        }
-        st.pydeck_chart(
-            pdk.Deck(
-                map_style="mapbox://styles/mapbox/light-v9",
-                initial_view_state={
-                    "latitude": 60.6,
-                    "longitude": 2.9,
-                    "zoom": 10,
-                    "pitch": 50,
-                },
-                layers=[layer for layer_name, layer in ALL_LAYERS.items()],
-            )
-        )
-        
-
+                    dfs_wells[wellnames.index(option)]['DEPTH'], 
+                    top_curve) 
