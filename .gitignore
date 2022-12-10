@@ -1,0 +1,4 @@
+toppicker.egg-info
+logs.log
+.gitattributes
+toppicker\__pycache__
